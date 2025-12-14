@@ -3,34 +3,29 @@ import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:geoflutterfire2/geoflutterfire2.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:trippo_driver/Container/Repositories/address_parser_repo.dart';
 import 'package:trippo_driver/Container/Repositories/firestore_repo.dart';
 import 'package:trippo_driver/Container/utils/error_notification.dart';
 import 'package:trippo_driver/View/Screens/Main_Screens/Home_Screen/home_providers.dart';
-import 'package:trippo_driver/View/Screens/Main_Screens/Home_Screen/home_screen.dart';
 
 class HomeLogics {
-  /// [getDriverLoc] fetches a the drivers location as soon as user start the app
-
   void getDriverLoc(BuildContext context, WidgetRef ref,
-      GoogleMapController controller) async {
+      MapController controller) async {
     try {
-      /// get driver's location
       Position pos = await Geolocator.getCurrentPosition(
           desiredAccuracy: LocationAccuracy.high);
 
-      /// animate camera to current driver's location
-      controller.animateCamera(CameraUpdate.newCameraPosition(CameraPosition(
-          target: LatLng(pos.latitude, pos.longitude), zoom: 14)));
+      final latLng = LatLng(pos.latitude, pos.longitude);
+      controller.move(latLng, 14);
+      ref.read(homeScreenDriverLocationProvider.notifier).state = latLng;
 
       if (context.mounted) {
-        /// get human readable address of the driver
         await ref
-            .watch(globalAddressParserProvider)
+            .read(globalAddressParserProvider)
             .humanReadableAddress(pos, context, ref);
       }
     } catch (e) {
@@ -40,41 +35,28 @@ class HomeLogics {
     }
   }
 
-  void getDriverOnline(BuildContext context, WidgetRef ref,
-      GoogleMapController controller) async {
+  void getDriverOnline(
+      BuildContext context, WidgetRef ref, MapController controller) async {
     try {
-      /// creating location's Geo Point
-      GeoFirePoint myLocation = geo.point(
-          latitude:
-              ref.read(homeScreenDriversLocationProvider)!.locationLatitude!,
-          longitude:
-              ref.read(homeScreenDriversLocationProvider)!.locationLongitude!);
+      final driverLocation = ref.read(homeScreenDriverLocationProvider);
+      if (driverLocation == null) return;
 
-      /// set driver's current location
       ref
           .read(globalFirestoreRepoProvider)
-          .setDriverLocationStatus(context, myLocation);
-
-      /// track driver's location as driver moves
+          .setDriverLocationStatus(context, driverLocation);
 
       Geolocator.getPositionStream().listen((event) {
+        final newLatLng = LatLng(event.latitude, event.longitude);
+        ref.read(homeScreenDriverLocationProvider.notifier).state = newLatLng;
         ref
             .read(globalFirestoreRepoProvider)
-            .setDriverLocationStatus(context, myLocation);
+            .setDriverLocationStatus(context, newLatLng);
       });
 
-      /// Driver's current position in [LatLng]
-      LatLng driverPos = LatLng(
-          ref.read(homeScreenDriversLocationProvider)!.locationLatitude!,
-          ref.read(homeScreenDriversLocationProvider)!.locationLongitude!);
-
-      /// animate to current driver's position
-      controller.animateCamera(CameraUpdate.newLatLng(driverPos));
+      controller.move(driverLocation, 14);
 
       ref.read(globalFirestoreRepoProvider).setDriverStatus(context, "Idle");
-      ref
-          .watch(homeScreenIsDriverActiveProvider.notifier)
-          .update((state) => true);
+      ref.read(homeScreenIsDriverActiveProvider.notifier).state = true;
     } catch (e) {
       ErrorNotification().showError(context, "An Error Occurred $e");
     }
@@ -82,22 +64,16 @@ class HomeLogics {
 
   void getDriverOffline(BuildContext context, WidgetRef ref) async {
     try {
-      /// deactivate Driver
-      ref
-          .watch(homeScreenIsDriverActiveProvider.notifier)
-          .update((state) => false);
+      ref.read(homeScreenIsDriverActiveProvider.notifier).state = false;
 
-      /// set Driver's status to be offline
       ref.read(globalFirestoreRepoProvider).setDriverStatus(context, "offline");
 
-      /// removve driver's location from database
       ref
           .read(globalFirestoreRepoProvider)
           .setDriverLocationStatus(context, null);
 
       await Future.delayed(const Duration(seconds: 2));
 
-      /// close the application
       SystemChannels.platform.invokeMethod("SystemNavigator.pop");
       if (context.mounted) {
         ErrorNotification().showSuccess(context, "You are now Offline");

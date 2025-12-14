@@ -2,7 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:geoflutterfire2/geoflutterfire2.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:trippo_driver/Model/driver_info_model.dart';
 
 import '../utils/error_notification.dart';
@@ -29,9 +29,8 @@ class AddFirestoreData {
         "Car Type": carType
       });
     } catch (e) {
-      if(context.mounted){
-
-      ErrorNotification().showError(context, "An Error Occurred $e");
+      if (context.mounted) {
+        ErrorNotification().showError(context, "An Error Occurred $e");
       }
     }
   }
@@ -51,11 +50,9 @@ class AddFirestoreData {
           data.data()?["Car Plate Num"],
           data.data()?["Car Type"]);
 
-      print("data is ${driver.carType}");
     } catch (e) {
-      if(context.mounted){
-
-      ErrorNotification().showError(context, "An Error Occurred $e");
+      if (context.mounted) {
+        ErrorNotification().showError(context, "An Error Occurred $e");
       }
     }
   }
@@ -67,22 +64,26 @@ class AddFirestoreData {
           .doc(auth.currentUser!.email.toString())
           .update({"driverStatus": status});
     } catch (e) {
-   if(context.mounted){
-
-      ErrorNotification().showError(context, "An Error Occurred $e");
+      if (context.mounted) {
+        ErrorNotification().showError(context, "An Error Occurred $e");
       }
     }
   }
-  void setDriverLocationStatus(BuildContext context, GeoFirePoint? loc) async {
+
+  void setDriverLocationStatus(BuildContext context, LatLng? loc) async {
     try {
+      final data = loc != null
+          ? {
+              'geopoint': GeoPoint(loc.latitude, loc.longitude),
+            }
+          : null;
       await db
           .collection("Drivers")
           .doc(auth.currentUser!.email.toString())
-          .update({"driverLoc": loc?.data});
+          .update({"driverLoc": data});
     } catch (e) {
-     if(context.mounted){
-
-      ErrorNotification().showError(context, "An Error Occurred $e");
+      if (context.mounted) {
+        ErrorNotification().showError(context, "An Error Occurred $e");
       }
     }
   }
