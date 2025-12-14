@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:trippo_user/Model/driver_model.dart';
 import 'package:trippo_user/View/Screens/Main_Screens/Home_Screen/home_providers.dart';
@@ -27,33 +28,45 @@ class FirestoreRepo {
         final driverMarkers = <Marker>[];
         for (var driver in event.docs) {
           final driverData = driver.data();
+          if (driverData["driverLoc"] == null || driverData["driverLoc"]["geopoint"] == null) {
+            continue;
+          }
           final geoPoint = driverData["driverLoc"]["geopoint"] as GeoPoint;
           final driverLoc = LatLng(geoPoint.latitude, geoPoint.longitude);
 
-          DriverModel model = DriverModel(
-              driverData["Car Name"],
-              driverData["Car Plate Num"],
-              driverData["Car Type"],
-              driverLoc,
-              driverData["driverStatus"],
-              driverData["email"],
-              driverData["name"]);
+          double distanceInMeters = Geolocator.distanceBetween(
+            userPos.latitude,
+            userPos.longitude,
+            driverLoc.latitude,
+            driverLoc.longitude,
+          );
 
-          if (driverData["driverStatus"] == "Idle") {
-            availableDrivers.add(model);
-            driverMarkers.add(Marker(
-              key: Key(driverData["Car Name"]),
-              point: driverLoc,
-              child: Image.asset(
-                driverData["Car Type"] == "Car"
-                    ? "assets/imgs/sedan.png"
-                    : driverData["Car Type"] == "MotorCycle"
-                        ? "assets/imgs/motorbike.png"
-                        : "assets/imgs/suv.png",
-                width: 40,
-                height: 40,
-              ),
-            ));
+          if (distanceInMeters <= 50000) { // 50 kilometers
+            DriverModel model = DriverModel(
+                driverData["Car Name"],
+                driverData["Car Plate Num"],
+                driverData["Car Type"],
+                driverLoc,
+                driverData["driverStatus"],
+                driverData["email"],
+                driverData["name"]);
+
+            if (driverData["driverStatus"] == "Idle") {
+              availableDrivers.add(model);
+              driverMarkers.add(Marker(
+                key: Key(driverData["Car Name"]),
+                point: driverLoc,
+                child: Image.asset(
+                  driverData["Car Type"] == "Car"
+                      ? "assets/imgs/sedan.png"
+                      : driverData["Car Type"] == "MotorCycle"
+                          ? "assets/imgs/motorbike.png"
+                          : "assets/imgs/suv.png",
+                  width: 40,
+                  height: 40,
+                ),
+              ));
+            }
           }
         }
         ref.read(homeScreenAvailableDriversProvider.notifier).state =
