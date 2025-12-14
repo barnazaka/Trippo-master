@@ -1,9 +1,9 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:geoflutterfire2/geoflutterfire2.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:trippo_user/Model/driver_model.dart';
 import 'package:trippo_user/View/Screens/Main_Screens/Home_Screen/home_providers.dart';
 
@@ -14,71 +14,51 @@ final globalFirestoreRepoProvider = Provider<FirestoreRepo>((ref) {
 });
 
 class FirestoreRepo {
-  final geo = GeoFlutterFire();
   FirebaseFirestore db = FirebaseFirestore.instance;
   FirebaseAuth auth = FirebaseAuth.instance;
   void getDriverData(
       BuildContext context, WidgetRef ref, LatLng userPos) async {
     try {
-      /// getting [DriverData] from [FirebaseFirestore]
-
       Stream<QuerySnapshot<Map<String, dynamic>>> drivers =
           db.collection("Drivers").snapshots();
 
       drivers.listen((event) {
+        final availableDrivers = <DriverModel>[];
+        final driverMarkers = <Marker>[];
         for (var driver in event.docs) {
+          final driverData = driver.data();
+          final geoPoint = driverData["driverLoc"]["geopoint"] as GeoPoint;
+          final driverLoc = LatLng(geoPoint.latitude, geoPoint.longitude);
+
           DriverModel model = DriverModel(
-              driver.data()["Car Name"],
-              driver.data()["Car Plate Num"],
-              driver.data()["Car Type"],
-              geo.point(
-                  latitude: driver.data()["driverLoc"]["geopoint"].latitude,
-                  longitude: driver.data()["driverLoc"]["geopoint"].longitude),
-              driver.data()["driverStatus"],
-              driver.data()["email"],
-              driver.data()["name"]);
+              driverData["Car Name"],
+              driverData["Car Plate Num"],
+              driverData["Car Type"],
+              driverLoc,
+              driverData["driverStatus"],
+              driverData["email"],
+              driverData["name"]);
 
-          if (driver.data()["driverStatus"] == "offline") {
-            return;
-          }
-
-          ref
-              .read(homeScreenAvailableDriversProvider.notifier)
-              .update((state) => [...state, model]);
-        }
-      });
-
-      GeoFirePoint center =
-          geo.point(latitude: userPos.latitude, longitude: userPos.longitude);
-
-      Stream<List<DocumentSnapshot<Object?>>> allDriversStream = geo
-          .collection(collectionRef: db.collection("Drivers"))
-          .within(
-              center: center, radius: 50, field: "driverLoc", strictMode: true);
-
-      allDriversStream.listen((event) async {
-        for (var driver in event) {
-          if (driver["driverStatus"] == "Idle") {
-            Marker marker = Marker(
-                markerId: MarkerId(driver["Car Name"]),
-                infoWindow: InfoWindow(
-                  title: driver["Car Name"],
-                ),
-                position: LatLng(driver["driverLoc"]["geopoint"].latitude,
-                    driver["driverLoc"]["geopoint"].longitude),
-                icon: await BitmapDescriptor.fromAssetImage(
-                    const ImageConfiguration(),
-                    driver["Car Type"] == "Car"
-                        ? "assets/imgs/sedan.png"
-                        : driver["Car Type"] == "MotorCycle"
-                            ? "assets/imgs/motorbike.png"
-                            : "assets/imgs/suv.png"));
-
-            ref
-                .read(homeScreenMainMarkersProvider.notifier)
-                .update((state) => {...state, marker});
+          if (driverData["driverStatus"] == "Idle") {
+            availableDrivers.add(model);
+            driverMarkers.add(Marker(
+              key: Key(driverData["Car Name"]),
+              point: driverLoc,
+              child: Image.asset(
+                driverData["Car Type"] == "Car"
+                    ? "assets/imgs/sedan.png"
+                    : driverData["Car Type"] == "MotorCycle"
+                        ? "assets/imgs/motorbike.png"
+                        : "assets/imgs/suv.png",
+                width: 40,
+                height: 40,
+              ),
+            ));
           }
         }
+        ref.read(homeScreenAvailableDriversProvider.notifier).state =
+            availableDrivers;
+        ref.read(homeScreenMainMarkersProvider.notifier).state = driverMarkers;
       });
     } catch (e) {
       if (context.mounted) {
@@ -96,13 +76,13 @@ class FirestoreRepo {
         "OriginLng":
             ref.read(homeScreenPickUpLocationProvider)!.locationLongitude,
         "OriginAddress":
-            ref.read(homeScreenPickUpLocationProvider)!.locationName,
+            ref.read(homeScreenPickUpLocationProvider)!.humanReadableAddress,
         "destinationLat":
             ref.read(homeScreenDropOffLocationProvider)!.locationLatitude,
         "destinationLng":
             ref.read(homeScreenDropOffLocationProvider)!.locationLongitude,
         "destinationAddress":
-            ref.read(homeScreenDropOffLocationProvider)!.locationName,
+            ref.read(homeScreenDropOffLocationProvider)!.humanReadableAddress,
         "time": DateTime.now(),
         "userEmail": auth.currentUser!.email.toString(),
         "driverEmail": driverEmail
