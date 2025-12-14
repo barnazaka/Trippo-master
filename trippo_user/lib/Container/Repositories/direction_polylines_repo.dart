@@ -1,16 +1,14 @@
 import 'package:dio/dio.dart';
 import 'package:elegant_notification/elegant_notification.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_polyline_points/flutter_polyline_points.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:trippo_user/Container/utils/keys.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:trippo_user/Model/direction_polyline_details_model.dart';
 import 'package:trippo_user/View/Screens/Main_Screens/Home_Screen/home_providers.dart';
+import 'package:polyline_decode/polyline_decode.dart';
 
 import '../utils/error_notification.dart';
-
-/// [directionPolylinesRepoProvider] used to cache the [DirectionPolylines] class to prevent it from creating multiple instances
 
 final globalDirectionPolylinesRepoProvider =
     Provider<DirectionPolylines>((ref) {
@@ -20,82 +18,51 @@ final globalDirectionPolylinesRepoProvider =
 class DirectionPolylines {
   List<LatLng> pLinesCoordinatedList = [];
 
-  /// [setNewDirectionPolylines] function takes the [DirectionPolylineDetails] model from the [getDirectionsPolylines] function
-  ///  and adds the decoded polylines data to [pLinesCoordinatedList] and creates a new [polyline] variable and alots the var to [mainPolylinesProvider] located in the [HomeScreen]
-  /// and creates LatLng [Bounds] which would animates the [GoogleMapsController] controller to the new position with polylines on [map] and with 65 [padding]
-
-  void setNewDirectionPolylines(ref, context, controller) async {
+  void setNewDirectionPolylines(
+      WidgetRef ref, BuildContext context, MapController controller) async {
     try {
-      DirectionPolylineDetails model =
+      DirectionPolylineDetails? model =
           await getDirectionsPolylines(context, ref);
-      await calculateRideRate(context, ref);
+      if (model == null) return;
 
-      PolylinePoints points = PolylinePoints();
-      List<PointLatLng> decodedPolylines =
-          points.decodePolyline(model.epoints!);
+      await calculateRideRate(context, ref, model);
+
+      Polyline_decoder decoder = Polyline_decoder();
+      List<List<double>> decodedCoordinates =
+          decoder.decode(model.epoints!);
 
       pLinesCoordinatedList.clear();
 
-      if (decodedPolylines.isNotEmpty) {
-        for (PointLatLng polyline in decodedPolylines) {
-          pLinesCoordinatedList
-              .add(LatLng(polyline.latitude, polyline.longitude));
+      if (decodedCoordinates.isNotEmpty) {
+        for (var point in decodedCoordinates) {
+          pLinesCoordinatedList.add(LatLng(point[0], point[1]));
         }
       }
 
-      ref.read(homeScreenMainPolylinesProvider).clear();
+      ref.read(homeScreenMainPolylinesProvider.notifier).state = [];
 
       Polyline newPolyline = Polyline(
-          color: Colors.blue,
-          polylineId: const PolylineId("polylineId"),
-          jointType: JointType.round,
-          points: pLinesCoordinatedList,
-          startCap: Cap.roundCap,
-          endCap: Cap.roundCap,
-          geodesic: true,
-          width: 5);
+        points: pLinesCoordinatedList,
+        strokeWidth: 4.0,
+        color: Colors.blue,
+      );
 
       ref
           .read(homeScreenMainPolylinesProvider.notifier)
-          .update((Set<Polyline> state) => {...state, newPolyline});
+          .update((state) => [newPolyline]);
 
-      double miny = (ref
-                  .read(homeScreenPickUpLocationProvider)!
-                  .locationLatitude! <=
-              ref.read(homeScreenDropOffLocationProvider)!.locationLatitude!)
-          ? ref.read(homeScreenPickUpLocationProvider)!.locationLatitude!
-          : ref.read(homeScreenDropOffLocationProvider)!.locationLatitude!;
+      final pickUpLatLng = LatLng(
+        ref.read(homeScreenPickUpLocationProvider)!.locationLatitude!,
+        ref.read(homeScreenPickUpLocationProvider)!.locationLongitude!,
+      );
+      final dropOffLatLng = LatLng(
+        ref.read(homeScreenDropOffLocationProvider)!.locationLatitude!,
+        ref.read(homeScreenDropOffLocationProvider)!.locationLongitude!,
+      );
 
-      double minx = (ref
-                  .read(homeScreenPickUpLocationProvider)!
-                  .locationLongitude <=
-              ref.read(homeScreenDropOffLocationProvider)!.locationLongitude!)
-          ? ref.read(homeScreenPickUpLocationProvider)!.locationLongitude
-          : ref.read(homeScreenDropOffLocationProvider)!.locationLongitude!;
-      double maxy = (ref
-                  .read(homeScreenPickUpLocationProvider)!
-                  .locationLatitude! <=
-              ref.read(homeScreenDropOffLocationProvider)!.locationLatitude!)
-          ? ref.read(homeScreenDropOffLocationProvider)!.locationLatitude!
-          : ref.read(homeScreenPickUpLocationProvider)!.locationLatitude!;
-      double maxx = (ref
-                  .read(homeScreenPickUpLocationProvider)!
-                  .locationLongitude <=
-              ref.read(homeScreenDropOffLocationProvider)!.locationLongitude!)
-          ? ref.read(homeScreenDropOffLocationProvider)!.locationLongitude!
-          : ref.read(homeScreenPickUpLocationProvider)!.locationLongitude;
+      var bounds = LatLngBounds(pickUpLatLng, dropOffLatLng);
+      controller.fitCamera(CameraFit.bounds(bounds: bounds, padding: const EdgeInsets.all(50)));
 
-      double southWestLatitude = miny;
-      double southWestLongitude = minx;
-
-      double northEastLatitude = maxy;
-      double northEastLongitude = maxx;
-
-      LatLngBounds bounds = LatLngBounds(
-          southwest: LatLng(southWestLatitude, southWestLongitude),
-          northeast: LatLng(northEastLatitude, northEastLongitude));
-
-      controller!.animateCamera(CameraUpdate.newLatLngBounds(bounds, 65));
     } catch (e) {
       ElegantNotification.error(
           description: Text(
@@ -105,48 +72,43 @@ class DirectionPolylines {
     }
   }
 
-  /// [getDirectionsPolylines] function takes the [pickUpDestination] and  the [dropOffDestination] from the user and fetches the direction data from google maps api
-  /// and returns the response in form of [DirectionPolylineDetails]
-
-  Future<dynamic> getDirectionsPolylines(context, WidgetRef ref) async {
+  Future<DirectionPolylineDetails?> getDirectionsPolylines(
+      BuildContext context, WidgetRef ref) async {
     try {
-      LatLng pickUpDestination = LatLng(
-          ref.read(homeScreenPickUpLocationProvider)!.locationLatitude!,
-          ref.read(homeScreenPickUpLocationProvider)!.locationLongitude!);
-      LatLng dropOffDestination = LatLng(
-          ref.read(homeScreenDropOffLocationProvider)!.locationLatitude!,
-          ref.read(homeScreenDropOffLocationProvider)!.locationLongitude!);
+      final pickUpDestination = ref.read(homeScreenPickUpLocationProvider)!;
+      final dropOffDestination = ref.read(homeScreenDropOffLocationProvider)!;
+
+      final pickUpCoords =
+          '${pickUpDestination.locationLongitude},${pickUpDestination.locationLatitude}';
+      final dropOffCoords =
+          '${dropOffDestination.locationLongitude},${dropOffDestination.locationLatitude}';
 
       String url =
-          "https://maps.googleapis.com/maps/api/directions/json?origin=${pickUpDestination.latitude},${pickUpDestination.longitude}&destination=${dropOffDestination.latitude},${dropOffDestination.longitude}&key=$mapKey";
+          "http://router.project-osrm.org/route/v1/driving/$pickUpCoords;$dropOffCoords?overview=full&geometries=polyline";
 
       Response res = await Dio().get(url);
 
       if (res.statusCode == 200) {
         DirectionPolylineDetails model = DirectionPolylineDetails(
-          epoints: res.data["routes"][0]["overview_polyline"]["points"],
-          distanceText: res.data["routes"][0]["legs"][0]["distance"]["text"],
-          distanceValue: res.data["routes"][0]["legs"][0]["distance"]["value"],
-          durationText: res.data["routes"][0]["legs"][0]["duration"]["text"],
-          durationValue: res.data["routes"][0]["legs"][0]["duration"]["value"],
+          epoints: res.data["routes"][0]["geometry"],
+          distanceValue: res.data["routes"][0]["distance"],
+          durationValue: res.data["routes"][0]["duration"],
         );
-
         return model;
       } else {
         ErrorNotification().showError(context, "Failed to get data");
+        return null;
       }
     } catch (e) {
       ErrorNotification().showError(context, "An Error Occurred $e");
+      return null;
     }
   }
 
-  /// [calculateRideRate] calculates the fare of the user's travel
-
-  Future<dynamic> calculateRideRate(context, WidgetRef ref) async {
+  Future<void> calculateRideRate(BuildContext context, WidgetRef ref,
+      DirectionPolylineDetails model) async {
     try {
-      DirectionPolylineDetails model =
-          await getDirectionsPolylines(context, ref);
-      double travelFarePerMin = (model.distanceValue! / 60) * 0.1;
+      double travelFarePerMin = (model.durationValue! / 60) * 0.1;
       double distanceFarePerKM = (model.distanceValue! / 1000) * 0.1;
 
       double totalFare = travelFarePerMin + distanceFarePerKM;
@@ -160,7 +122,6 @@ class DirectionPolylines {
         "An Error Occurred $e",
         style: const TextStyle(color: Colors.black),
       )).show(context);
-      return 0;
     }
   }
 }

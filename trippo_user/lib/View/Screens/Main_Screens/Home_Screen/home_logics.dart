@@ -2,48 +2,40 @@ import 'dart:io';
 
 import 'package:elegant_notification/elegant_notification.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:geocoder2/geocoder2.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:lottie/lottie.dart' as lottie;
 import 'package:trippo_user/Container/Repositories/address_parser_repo.dart';
 import 'package:trippo_user/Container/Repositories/direction_polylines_repo.dart';
 import 'package:trippo_user/Container/Repositories/firestore_repo.dart';
 import 'package:trippo_user/Container/utils/error_notification.dart';
-import 'package:trippo_user/Container/utils/keys.dart';
 import 'package:trippo_user/Model/direction_model.dart';
 import 'package:trippo_user/View/Components/all_components.dart';
 import 'package:trippo_user/View/Screens/Main_Screens/Home_Screen/home_providers.dart';
 import 'package:dio/dio.dart';
+import 'package:geocoding/geocoding.dart';
 
 class HomeScreenLogics {
-  void changePickUpLoc(BuildContext context, WidgetRef ref,
-      GoogleMapController controller) async {
+  void changePickUpLoc(
+      BuildContext context, WidgetRef ref, MapController controller) async {
     try {
-      ref
-          .watch(homeScreenDropOffLocationProvider.notifier)
-          .update((state) => null);
+      ref.read(homeScreenDropOffLocationProvider.notifier).state = null;
 
-      ref
-          .watch(homeScreenMainMarkersProvider)
-          .removeWhere((element) => element.markerId.value == "pickUpId");
-      ref
-          .watch(homeScreenMainMarkersProvider)
-          .removeWhere((element) => element.markerId.value == "dropOffId");
-      ref
-          .watch(homeScreenMainCirclesProvider)
-          .removeWhere((ele) => ele.circleId.value == "pickUpCircle");
-      ref
-          .watch(homeScreenMainCirclesProvider)
-          .removeWhere((ele) => ele.circleId.value == "dropOffCircle");
-      ref.watch(homeScreenMainPolylinesProvider.notifier).update((state) => {});
+      ref.read(homeScreenMainMarkersProvider.notifier).update((state) {
+        state.removeWhere((element) => element.key == const Key("pickUpId"));
+        state.removeWhere((element) => element.key == const Key("dropOffId"));
+        return List.from(state);
+      });
+
+      ref.read(homeScreenMainPolylinesProvider.notifier).state = [];
+
       Position pos = await Geolocator.getCurrentPosition(
           desiredAccuracy: LocationAccuracy.high);
 
-      controller.animateCamera(CameraUpdate.newCameraPosition(CameraPosition(
-          target: LatLng(pos.latitude, pos.longitude), zoom: 14)));
+      controller.move(LatLng(pos.latitude, pos.longitude), 14);
     } catch (e) {
       if (context.mounted) {
         ElegantNotification.error(
@@ -55,20 +47,17 @@ class HomeScreenLogics {
     }
   }
 
-  /// [getUserLoc] fetches a the users location as soon as user start the app
-
-  void getUserLoc(BuildContext context, WidgetRef ref,
-      GoogleMapController controller) async {
+  void getUserLoc(
+      BuildContext context, WidgetRef ref, MapController controller) async {
     try {
       Position pos = await Geolocator.getCurrentPosition(
           desiredAccuracy: LocationAccuracy.high);
 
-      controller.animateCamera(CameraUpdate.newCameraPosition(CameraPosition(
-          target: LatLng(pos.latitude, pos.longitude), zoom: 14)));
+      controller.move(LatLng(pos.latitude, pos.longitude), 14);
 
       if (context.mounted) {
         await ref
-            .watch(globalAddressParserProvider)
+            .read(globalAddressParserProvider)
             .humanReadableAddress(pos, context, ref);
       }
       if (context.mounted) {
@@ -83,28 +72,27 @@ class HomeScreenLogics {
     }
   }
 
-  /// [getAddressfromCordinates] read data from [cameraMovementProvider] (which is updated whenever the camera moves) and gets the human readable address
-  /// from the [cameraMovementProvider] and returns a [Direction] model which is assigned to [pickUpLocationProvider] (which sets the user's pick up Location)
-
   void getAddressfromCordinates(BuildContext context, WidgetRef ref) async {
     try {
-      if (ref.read(homeScreenCameraMovementProvider) == null) {
-        return;
+      final center = ref.read(homeScreenCameraMovementProvider);
+      if (center == null) return;
+
+      List<Placemark> placemarks =
+          await placemarkFromCoordinates(center.latitude, center.longitude);
+
+      if (placemarks.isNotEmpty) {
+        final placemark = placemarks.first;
+        final address =
+            '${placemark.street}, ${placemark.locality}, ${placemark.postalCode}, ${placemark.country}';
+
+        Direction model = Direction(
+          locationLatitude: center.latitude,
+          locationLongitude: center.longitude,
+          humanReadableAddress: address,
+        );
+
+        ref.read(homeScreenPickUpLocationProvider.notifier).state = model;
       }
-
-      GeoData data = await Geocoder2.getDataFromCoordinates(
-          latitude: ref.read(homeScreenCameraMovementProvider)!.latitude,
-          longitude: ref.read(homeScreenCameraMovementProvider)!.longitude,
-          googleMapApiKey: mapKey);
-
-      Direction model = Direction(
-          locationLatitude: data.latitude,
-          locationLongitude: data.longitude,
-          humanReadableAddress: data.address);
-
-      ref
-          .read(homeScreenPickUpLocationProvider.notifier)
-          .update((state) => model);
     } catch (e) {
       if (context.mounted) {
         ErrorNotification().showError(context, "An Error Occurred $e");
@@ -112,80 +100,38 @@ class HomeScreenLogics {
     }
   }
 
-  /// Function for [WhereTo] TextField Button
-
-  void openWhereToScreen(BuildContext context, WidgetRef ref,
-      GoogleMapController controller) async {
+  void openWhereToScreen(
+      BuildContext context, WidgetRef ref, MapController controller) async {
     try {
-      if (ref.watch(homeScreenDropOffLocationProvider) == null) {
+      final dropOffLocation = ref.watch(homeScreenDropOffLocationProvider);
+      final pickUpLocation = ref.watch(homeScreenPickUpLocationProvider);
+      if (dropOffLocation == null || pickUpLocation == null) {
         return;
       }
 
-      if (context.mounted) {
-        /// Making [Markers] for [pickUp] and [dropOff] Places
-        Marker pickUpMarker = Marker(
-            markerId: const MarkerId("pickUpId"),
-            infoWindow: InfoWindow(
-              title: ref.watch(homeScreenPickUpLocationProvider)!.locationName,
-            ),
-            icon: BitmapDescriptor.defaultMarkerWithHue(
-                BitmapDescriptor.hueGreen),
-            position: LatLng(
-                ref.watch(homeScreenPickUpLocationProvider)!.locationLatitude!,
-                ref
-                    .watch(homeScreenPickUpLocationProvider)!
-                    .locationLongitude!));
-        Marker dropOffMarker = Marker(
-            markerId: const MarkerId("dropOffId"),
-            infoWindow: InfoWindow(
-              title: ref.watch(homeScreenDropOffLocationProvider)!.locationName,
-            ),
-            icon:
-                BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
-            position: LatLng(
-                ref.watch(homeScreenDropOffLocationProvider)!.locationLatitude!,
-                ref
-                    .watch(homeScreenDropOffLocationProvider)!
-                    .locationLongitude!));
+      var pickUpMarker = Marker(
+        key: const Key("pickUpId"),
+        point:
+            LatLng(pickUpLocation.locationLatitude!, pickUpLocation.locationLongitude!),
+        child: const Icon(Icons.location_on, color: Colors.green),
+      );
 
-        /// Making [Circle] for [pickUp] and [dropOff] Places
+      var dropOffMarker = Marker(
+        key: const Key("dropOffId"),
+        point: LatLng(
+            dropOffLocation.locationLatitude!, dropOffLocation.locationLongitude!),
+        child: const Icon(Icons.location_on, color: Colors.red),
+      );
 
-        Circle pickUpCircle = Circle(
-            circleId: const CircleId("pickUpCircle"),
-            fillColor: Colors.green,
-            radius: 500,
-            strokeColor: Colors.black,
-            center: LatLng(
-                ref.watch(homeScreenPickUpLocationProvider)!.locationLatitude!,
-                ref
-                    .watch(homeScreenPickUpLocationProvider)!
-                    .locationLongitude!));
-        Circle dropOffCircle = Circle(
-            circleId: const CircleId("dropOffCircle"),
-            fillColor: Colors.red,
-            radius: 500,
-            strokeColor: Colors.black,
-            center: LatLng(
-                ref.watch(homeScreenDropOffLocationProvider)!.locationLatitude!,
-                ref
-                    .watch(homeScreenDropOffLocationProvider)!
-                    .locationLongitude!));
+      ref
+          .read(homeScreenMainMarkersProvider.notifier)
+          .update((state) => [...state, pickUpMarker, dropOffMarker]);
 
-        /// Calling function to draw [Polylines]
-        ref
-            .watch(globalDirectionPolylinesRepoProvider)
-            .setNewDirectionPolylines(ref, context, controller);
+      ref
+          .read(globalDirectionPolylinesRepoProvider)
+          .setNewDirectionPolylines(ref, context, controller);
 
-        /// Adding [Markers] to [pickUp] and [dropOff] Places
-        ref
-            .watch(homeScreenMainMarkersProvider.notifier)
-            .update((state) => {...state, pickUpMarker, dropOffMarker});
 
-        /// Adding [Circles] to [pickUp] and [dropOff] Places
-        ref
-            .watch(homeScreenMainCirclesProvider.notifier)
-            .update((state) => {...state, pickUpCircle, dropOffCircle});
-      }
     } catch (e) {
       if (context.mounted) {
         ErrorNotification().showError(context, "An Error Occurred $e");
@@ -209,8 +155,8 @@ class HomeScreenLogics {
     return calculatedDistance;
   }
 
-  dynamic requestARide(size, BuildContext context, WidgetRef ref,
-      GoogleMapController controller) {
+  dynamic requestARide(
+      size, BuildContext context, WidgetRef ref, MapController controller) {
     if (ref.watch(homeScreenDropOffLocationProvider) == null) {
       ErrorNotification().showError(context, "Please add destination first");
       return;
@@ -283,8 +229,6 @@ class HomeScreenLogics {
                                                   index]
                                               .driverLoc
                                               .longitude);
-                                      print(
-                                          "The updated distance is $distanceToDriver");
 
                                       if (distanceToDriver < 50 && index == ref.watch(homeScreenSelectedRideProvider) && ref.watch(homeScreenStartDriverSearch) ) {
                                         context.pop();

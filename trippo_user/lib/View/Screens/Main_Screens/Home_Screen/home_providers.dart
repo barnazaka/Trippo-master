@@ -1,5 +1,6 @@
+import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:trippo_user/Model/driver_model.dart';
 
 import '../../../../Model/direction_model.dart';
@@ -31,14 +32,10 @@ final homeScreenAddressProvider = StateProvider<String?>((ref) {
   return null;
 });
 
-final homeScreenMainPolylinesProvider = StateProvider<Set<Polyline>>((ref) {
-  return {};
+final homeScreenMainPolylinesProvider = StateProvider<List<Polyline>>((ref) {
+  return [];
 });
 
-final homeScreenMainMarkersProvider = StateProvider<Set<Marker>>((ref) {
-  return {};
-});
-
-final homeScreenMainCirclesProvider = StateProvider<Set<Circle>>((ref) {
-  return {};
+final homeScreenMainMarkersProvider = StateProvider<List<Marker>>((ref) {
+  return [];
 });
