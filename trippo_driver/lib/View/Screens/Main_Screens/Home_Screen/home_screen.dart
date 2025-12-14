@@ -1,16 +1,11 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:geolocator/geolocator.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:trippo_driver/Container/Repositories/firestore_repo.dart';
 import 'package:trippo_driver/Container/utils/firebase_messaging.dart';
 import 'package:trippo_driver/View/Screens/Main_Screens/Home_Screen/home_logics.dart';
 import 'package:trippo_driver/View/Screens/Main_Screens/Home_Screen/home_providers.dart';
-import '../../../../Container/utils/set_blackmap.dart';
-import 'package:geoflutterfire2/geoflutterfire2.dart';
-
-final geo = GeoFlutterFire();
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -20,57 +15,53 @@ class HomeScreen extends ConsumerStatefulWidget {
 }
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
-  CameraPosition initpos =
-      const CameraPosition(target: LatLng(0.0, 0.0), zoom: 14);
-
-  final Completer<GoogleMapController> completer = Completer();
-  GoogleMapController? controller;
-  Geolocator geoLocator = Geolocator();
+  final MapController mapController = MapController();
 
   @override
   void initState() {
     super.initState();
     MessagingService().init(context);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      HomeLogics().getDriverLoc(context, ref, mapController);
+      ref.read(globalFirestoreRepoProvider).getDriverDetails(context);
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     Size size = MediaQuery.sizeOf(context);
+    final driverLocation = ref.watch(homeScreenDriverLocationProvider);
 
     return Scaffold(
       body: SafeArea(
-          child: SizedBox(
-              width: size.width,
-              height: size.height,
-              child: Stack(
+        child: SizedBox(
+          width: size.width,
+          height: size.height,
+          child: Stack(
+            children: [
+              FlutterMap(
+                mapController: mapController,
+                options: MapOptions(
+                  initialCenter: driverLocation ?? const LatLng(0.0, 0.0),
+                  initialZoom: 14,
+                ),
                 children: [
-                  GoogleMap(
-                    mapType: MapType.normal,
-                    myLocationButtonEnabled: true,
-                    trafficEnabled: true,
-                    compassEnabled: true,
-                    buildingsEnabled: true,
-                    myLocationEnabled: true,
-                    zoomControlsEnabled: false,
-                    zoomGesturesEnabled: true,
-                    initialCameraPosition: initpos,
-                    polylines: ref.watch(homeScreenMainPolylinesProvider),
-                    markers: ref.watch(homeScreenMainMarkersProvider),
-                    circles: ref.watch(homeScreenMainCirclesProvider),
-                    onMapCreated: (map) {
-                      completer.complete(map);
-                      controller = map;
-                      SetBlackMap().setBlackMapTheme(map);
-                      HomeLogics().getDriverLoc(context, ref, controller!);
-                      ref
-                          .watch(globalFirestoreRepoProvider)
-                          .getDriverDetails(context);
-                    },
+                  TileLayer(
+                    urlTemplate:
+                        'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+                    subdomains: const ['a', 'b', 'c'],
                   ),
-                  ref.watch(homeScreenIsDriverActiveProvider)
-                      ? Container()
-                      : Container(
-                          height: size.height,
+                  PolylineLayer(
+                    polylines: ref.watch(homeScreenMainPolylinesProvider),
+                  ),
+                  MarkerLayer(
+                    markers: ref.watch(homeScreenMainMarkersProvider),
+                  ),
+                ],
+              ),
+              if (!ref.watch(homeScreenIsDriverActiveProvider))
+                Container(
+                  height: size.height,
                           width: size.width,
                           color: Colors.black54),
                   Positioned(

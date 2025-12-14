@@ -11,7 +11,6 @@
 - **Ride Booking**: Book a ride with real-time fare estimation.
 - **Real-Time Ride Tracking**: View driver’s location on a map and track the ride in real-time.
 - **Ride History**: Check past rides with details like date, route, and price.
-- **Payment Integration**: Pay via integrated payment options (e.g., Stripe for credit card payments).
 - **Rating & Reviews**: Rate the driver and provide feedback after the ride.
 - **Push Notifications**: Get real-time updates about ride status via Firebase Cloud Messaging (FCM).
 
@@ -33,7 +32,7 @@
 
 - **Frontend**: 
   - **Framework**: Flutter (for both iOS and Android)
-  - **Maps**: Google Maps SDK for Flutter
+  - **Maps**: OpenStreetMap with Flutter Map
   
 - **Backend**: 
   - **Authentication**: Firebase Authentication
@@ -41,9 +40,6 @@
   - **Cloud Storage**: Firebase Cloud Storage (for images and documents)
   - **Cloud Functions**: Firebase Cloud Functions (for server-side logic)
   - **Push Notifications**: Firebase Cloud Messaging (FCM)
-  
-- **Payment Integration**: 
-  - **Stripe** (for processing card payments)
   
 ## Setup and Installation
 
@@ -64,7 +60,6 @@ git clone https://github.com/your-username/trippo-flutter.git
 1. Go to [Firebase Console](https://console.firebase.google.com/).
 2. Create a new project (e.g., "Trippo").
 3. Add Firebase services (Firestore, Firebase Authentication, Firebase Cloud Functions, Firebase Cloud Messaging).
-4. Add **Google Maps API** and **Stripe** integration.
 
 #### Firebase Configuration for Flutter:
 1. In the Firebase Console, navigate to "Project Settings" and add the iOS and Android apps.
@@ -75,10 +70,6 @@ git clone https://github.com/your-username/trippo-flutter.git
    
 4. Enable Firebase services like Firestore, Authentication, Cloud Storage, etc.
 
-#### Stripe Setup:
-- Create an account on [Stripe](https://stripe.com).
-- Get the **Publishable Key** and **Secret Key** for payment integration.
-
 ### 3. Install Dependencies
 
 ```bash
@@ -86,18 +77,7 @@ cd trippo-flutter
 flutter pub get
 ```
 
-### 4. Setup Environment Variables
-
-Create a `.env` file in the root of your Flutter project with the following:
-
-```env
-GOOGLE_MAPS_API_KEY=your-google-maps-api-key
-STRIPE_PUBLISHABLE_KEY=your-stripe-publishable-key
-```
-
-Replace the placeholders with your actual keys.
-
-### 5. Run the App
+### 4. Run the App
 
 To run the app on a physical device or emulator:
 
@@ -119,8 +99,7 @@ Make sure your Android or iOS environment is set up correctly.
 1. **Sign up/login**: Users can sign up using email, phone, or social media accounts.
 2. **Book a ride**: Enter the pickup and drop-off locations, and the app will calculate the fare.
 3. **Track the ride**: Real-time tracking of the driver’s location and estimated time of arrival (ETA).
-4. **Payment**: Pay for the ride via Stripe (credit card or other payment methods).
-5. **Rating & Review**: After the ride, rate the driver and leave feedback.
+4. **Rating & Review**: After the ride, rate the driver and leave feedback.
 
 ### Driver Flow:
 1. **Sign up/login**: Drivers sign up with essential details, including vehicle info.
